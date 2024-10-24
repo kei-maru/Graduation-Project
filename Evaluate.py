@@ -3,6 +3,8 @@ from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
 from Config import DEVICE
+from Model import build_model
+import os
 
 label_to_id = {
     'angry': 0,
@@ -15,6 +17,25 @@ label_to_id = {
 
 id_to_label = {v: k for k, v in label_to_id.items()}  # 反向映射
 
+
+def load_best_model():
+    # 读取记录最佳模型路径的文件
+    best_model_file = os.path.join("saved_models", "best_model.txt")
+
+    if not os.path.exists(best_model_file):
+        raise FileNotFoundError("No best model file found. Please train the model first.")
+
+    # 读取模型路径
+    with open(best_model_file, "r") as f:
+        model_path = f.readline().strip()
+
+    # 加载模型
+    model = build_model(num_labels=6)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
+    model.to(DEVICE)
+    model.eval()  # 切换到评估模式
+    print(f"Loaded best model from {model_path}")
+    return model
 
 def evaluate_model(model, loader):
     model.eval()
