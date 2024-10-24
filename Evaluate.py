@@ -17,7 +17,6 @@ label_to_id = {
 
 id_to_label = {v: k for k, v in label_to_id.items()}  # 反向映射
 
-
 def load_best_model():
     # 读取记录最佳模型路径的文件
     best_model_file = os.path.join("saved_models", "best_model.txt")
@@ -36,6 +35,16 @@ def load_best_model():
     model.eval()  # 切换到评估模式
     print(f"Loaded best model from {model_path}")
     return model
+
+def plot_confusion_matrix(all_labels, all_preds, labels):
+    # 计算并绘制混淆矩阵
+    cm = confusion_matrix(all_labels, all_preds, labels=labels)
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+    plt.show()
 
 def evaluate_model(model, loader):
     model.eval()
@@ -59,14 +68,13 @@ def evaluate_model(model, loader):
     all_preds = [id_to_label[pred] for pred in all_preds]
     all_labels = [id_to_label[label] for label in all_labels]
 
+    # 计算准确率
+    correct_predictions = sum([1 for true, pred in zip(all_labels, all_preds) if true == pred])
+    accuracy = correct_predictions / len(all_labels)
+
     print(classification_report(all_labels, all_preds, target_names=list(id_to_label.values())))
 
-    # 计算并绘制混淆矩阵
-    cm = confusion_matrix(all_labels, all_preds, labels=list(id_to_label.values()))
-    plt.figure(figsize=(10, 7))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=list(id_to_label.values()),
-                yticklabels=list(id_to_label.values()))
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.title('Confusion Matrix')
-    plt.show()
+    # 调用单独的混淆矩阵绘制函数
+    #plot_confusion_matrix(all_labels, all_preds, labels=list(id_to_label.values()))
+
+    return accuracy
