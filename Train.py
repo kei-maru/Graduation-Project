@@ -1,6 +1,6 @@
 import torch
 from torch.optim import AdamW
-from Config import EPOCHS, LEARNING_RATE, DEVICE
+from Config import EPOCHS, LEARNING_RATE, DEVICE, BATCH_SIZE, TRAIN_FILE, TEST_FILE
 from Data_loader import get_train_valid_dataloaders
 from Evaluate import evaluate_model, load_best_model
 from torch.nn import CrossEntropyLoss
@@ -60,28 +60,19 @@ def train_model(model, train_loader, valid_loader, output_dir, epochs=EPOCHS, le
 
 
 if __name__ == "__main__":
-    # 使用 argparse 添加命令行参数解析
-    parser = argparse.ArgumentParser(description="模型训练脚本")
-    parser.add_argument('--data_dir', type=str, required=True, help='数据集的路径')
-    parser.add_argument('--output_dir', type=str, required=True, help='模型保存路径')
-    parser.add_argument('--epochs', type=int, default=EPOCHS, help='训练的epochs数量')
-    parser.add_argument('--batch_size', type=int, default=32, help='批次大小')
-
-    args = parser.parse_args()
-
-    # 确保输出路径存在
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
+    # 从config.py中读取配置
+    data_dir = TRAIN_FILE  # 从config.py中获取训练数据文件路径
+    output_dir = "saved_models"  # 设定模型保存目录
 
     # 获取训练和验证数据加载器
-    train_loader, valid_loader = get_train_valid_dataloaders(args.data_dir)
+    train_loader, valid_loader = get_train_valid_dataloaders(data_dir, batch_size=BATCH_SIZE)
 
-    # 构建扩展后的模型，使用build_model
+    # 构建模型
     model = build_model(num_labels=6)
     model.to(DEVICE)
 
     # 训练模型并保存
-    train_model(model, train_loader, valid_loader, args.output_dir, epochs=args.epochs)
+    train_model(model, train_loader, valid_loader, output_dir, epochs=EPOCHS, learning_rate=LEARNING_RATE)
 
     # 加载并评估保存的最佳模型
     model = load_best_model()  # 加载最佳模型
