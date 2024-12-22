@@ -1,29 +1,106 @@
+import sinaweibopy3
+import urllib.error
+from selenium import webdriver
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from urllib.parse import urlparse, parse_qs
+from Data_loader import get_emotion_feature, load_emotion_dict, clean_data
 import torch
-import json
 from transformers import BertTokenizer
-from Config import DEVICE
-from Model import build_model
-from Data_loader import load_data, preprocess_data
-import os
+import matplotlib.pyplot as plt
+from collections import Counter
+from wordcloud import WordCloud
+import jieba
+import json
+import pandas as pd
 
-# 设置模型路径
+# 配置微博 API 的 APP_KEY, APP_SECRET 和 REDIRECT_URL
+APP_KEY = '1484092473'
+APP_SECRET = 'bc6bdeeaa3a230798666028b2364ef76'
+REDIRECT_URL = 'https://api.weibo.com/oauth2/default.html'
+
+# 模型路径
 MODEL_PATH = "saved_models/best_model_epoch_3.pt"
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-# 加载模型
+def setup_selenium_to_get_code(url):
+    """通过 Selenium 自动完成授权并获取重定向的 URL"""
+    driver = webdriver.Chrome(ChromeDriverManager().install())
+    driver.get(url)
+    input("请在浏览器中完成授权后按回车键...")  # 等待用户完成授权
+    redirect_url = driver.current_url
+    driver.quit()
+    return redirect_url
+
+
+def extract_weibo_id(url):
+    """从 URL 提取微博 ID"""
+    parsed_url = urlparse(url)
+    path_parts = parsed_url.path.strip('/').split('/')
+    if len(path_parts) > 1:
+        return path_parts[-1]  # 提取 ID 部分
+    raise ValueError("URL 格式不正确，无法提取微博 ID")
+def fetch_long_id(client, short_id):
+    """通过微博 API 将短 ID 转换为长整型 ID"""
+    try:
+        response = client.get.statuses__queryid(mid=short_id, type=1, isBase62=1)
+        return response['id']
+    except urllib.error.HTTPError as e:
+        print("获取长整型 ID 时出错:", e.code)
+        print("错误信息:", e.read().decode())
+        return None
+
+
+def fetch_comments(client, weibo_id, max_comments=900):
+    """获取微博评论，处理分页"""
+    comments = []
+    page = 1  # 从第一页开始
+    while len(comments) < max_comments:
+        try:
+            # 请求当前页的评论
+            response = client.get.comments__show(id=weibo_id, page=page, count=100)
+            comments.extend([comment['text'] for comment in response['comments']])
+
+            # 如果返回的评论数少于 100，说明已经获取到所有评论
+            if len(response['comments']) < 100:
+                break
+
+            page += 1  # 继续请求下一页
+        except urllib.error.HTTPError as e:
+            print("HTTP 错误:", e.code)
+            print("错误信息:", e.read().decode())
+            break
+
+    # 限制返回评论的最大数量
+    return comments[:max_comments]
+
+
 def load_model(model_path):
-    # 构建模型
-    model = build_model(num_labels=6)  # 假设你的模型是一个多分类模型，有6个类别
-    model.load_state_dict(torch.load(model_path))  # 加载模型参数
+    """加载预训练模型"""
+    from Model import build_model  # 假设您的 `build_model` 定义在 Model.py 中
+    model = build_model(num_labels=6)
+    model.load_state_dict(torch.load(model_path, map_location=DEVICE))
     model.to(DEVICE)
-    model.eval()  # 设置为评估模式
+    model.eval()
     return model
 
 
-# 预处理文本
 def preprocess_text(text, tokenizer, max_length=128):
+    """预处理文本：清洗文本并进行分词"""
+    # 将文本转换为 DataFrame 格式以便清洗
+    df = pd.DataFrame({'content': [text]})
+
+    # 调用 clean_data 清洗文本
+    cleaned_df = clean_data(df)
+
+    # 获取清洗后的文本
+    cleaned_text = cleaned_df['content'].values[0]
+    print(cleaned_text)
+    # 使用分词器进行分词处理
     inputs = tokenizer(
-        text,
+        cleaned_text,
         padding='max_length',
         truncation=True,
         max_length=max_length,
@@ -31,90 +108,105 @@ def preprocess_text(text, tokenizer, max_length=128):
     )
     return inputs['input_ids'].to(DEVICE), inputs['attention_mask'].to(DEVICE)
 
-
-# 获取情感特征
-def get_emotion_feature(text, emotion_dict):
-    for emotion, words in emotion_dict.items():
-        if any(word in text for word in words):
-            return emotion
-    return 'neutral'  # 如果没有匹配，中立
+def encode_emotion_feature(emotion, emotion_dict):
+    """根据情感标签返回编码"""
+    label_to_id = {emotion: idx for idx, emotion in enumerate(emotion_dict.keys())}
+    return label_to_id.get(emotion, label_to_id['neutral'])  # 默认编码为 'neutral'
 
 
-# 预处理情感特征并转换为张量
-def preprocess_emotion_feature(text, emotion_dict):
-    emotion = get_emotion_feature(text, emotion_dict)
-    label_to_id = {'angry': 0, 'happy': 1, 'neutral': 2, 'surprise': 3, 'sad': 4, 'fear': 5}
-    emotion_id = label_to_id.get(emotion, 2)  # 默认为 'neutral'，即 2
-    return torch.tensor([emotion_id]).to(DEVICE)
 
-
-# 进行情感分析
 def predict_sentiment(text, model, tokenizer, emotion_dict):
+    """预测文本情感"""
+    # 预处理文本，获取 input_ids 和 attention_mask
     input_ids, attention_mask = preprocess_text(text, tokenizer)
-    emotion_features = preprocess_emotion_feature(text, emotion_dict)
 
-    # 确保 emotion_features 的形状是 (batch_size, 1)，用于拼接
-    emotion_features = emotion_features.unsqueeze(1)  # 扩展维度
+    # 计算 emotion_features
+    emotion = get_emotion_feature(text, emotion_dict)  # 从文本获取情感特征
+    emotion_encoded = encode_emotion_feature(emotion, emotion_dict)  # 将情感特征编码
+    emotion_features = torch.tensor([[emotion_encoded]], dtype=torch.float32).to(DEVICE)
 
     with torch.no_grad():
-        # 预测情感
+        # 将 emotion_features 一起传递给模型
         outputs = model(input_ids=input_ids, attention_mask=attention_mask, emotion_features=emotion_features)
+        predictions = torch.argmax(outputs, dim=1).cpu().numpy()
 
-        # 直接获取 logits
-        logits = outputs[0]  # 修改此行，直接获取输出元组的第一个元素
-
-        predictions = torch.argmax(logits, dim=-1)
-        return predictions.item()  # 返回预测的标签
+    return predictions[0]
 
 
-# 加载测试数据
-def load_test_data(file_path):
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)  # 读取 JSON 文件
-    return data
+
+def analyze_sentiments(comments, model, tokenizer, emotion_dict):
+    """分析评论的情感"""
+    return [predict_sentiment(comment, model, tokenizer, emotion_dict) for comment in comments]
 
 
-# 映射标签到情感
-def label_to_emotion(label_id):
-    emotion_map = {
-        0: 'angry',
-        1: 'happy',
-        2: 'neutral',
-        3: 'surprise',
-        4: 'sad',
-        5: 'fear'
-    }
-    return emotion_map.get(label_id, 'unknown')
+def visualize_sentiments(sentiments):
+    """可视化情感分布（饼图）"""
+    sentiment_labels = ['angry', 'happy', 'neutral', 'surprise', 'sad', 'fear']
+
+    # 统计每种情感的数量
+    counts = Counter(sentiments)
+    labels = [sentiment_labels[i] for i in range(6)]
+    values = [counts.get(i, 0) for i in range(6)]
+
+    # 绘制饼图
+    plt.figure(figsize=(8, 8))
+    plt.pie(values, labels=labels, autopct='%1.1f%%', startangle=90,
+            colors=['#FF9999', '#66B3FF', '#99FF99', '#FFCC99', '#FFD700', '#C71585'])
+    plt.title("Sentiment Distribution")
+    plt.axis('equal')  # 保证饼图是圆形的
+    plt.show()
 
 
-# 主函数
-if __name__ == "__main__":
-    # 加载模型
+def generate_wordcloud(comments):
+    """生成词云"""
+    text = ' '.join(jieba.cut(' '.join(comments)))
+    wordcloud = WordCloud(font_path='simhei.ttf', background_color='white', width=800, height=400).generate(text)
+
+    plt.figure(figsize=(10, 6))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')
+    plt.title("Word Cloud of Comments")
+    plt.show()
+
+
+def main():
+    # 初始化微博 API 客户端
+    client = sinaweibopy3.APIClient(app_key=APP_KEY, app_secret=APP_SECRET, redirect_uri=REDIRECT_URL)
+    url = client.get_authorize_url()
+
+    # 使用 Selenium 获取授权后的 URL
+    redirect_url = setup_selenium_to_get_code(url)
+    code = parse_qs(urlparse(redirect_url).query).get('code', [None])[0]
+
+    # 换取 Access Token
+    result = client.request_access_token(code)
+    client.set_access_token(result.access_token, result.expires_in)
+
+    # 输入微博帖子 URL，提取微博 ID
+    post_url = input("请输入微博帖子的网址：")
+    short_id = extract_weibo_id(post_url)  # 从 URL 提取短 ID
+    long_id = fetch_long_id(client, short_id)
+    # 获取评论
+    if long_id:
+        comments = fetch_comments(client, long_id)
+
+    if not comments:
+        print("未获取到评论内容")
+        return
+
+    print(comments)
+    # 加载模型和分词器
     model = load_model(MODEL_PATH)
-
-    # 加载BERT tokenizer（假设你使用了BERT作为模型）
     tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
 
-    # 加载情感词典
-    emotion_dict = {
-        'angry': ['愤怒', '生气', '气愤', '恼火', '火大', '愠怒'],
-        'happy': ['开心', '快乐', '高兴', '愉快', '喜悦'],
-        'neutral': ['普通', '正常', '一般', '无感'],
-        'surprise': ['惊讶', '震惊', '意外', '惊喜'],
-        'sad': ['悲伤', '难过', '沮丧', '伤心', '失落', '痛苦'],
-        'fear': ['害怕', '恐惧', '担忧', '紧张', '恐慌']
-    }
+    # 分析评论情感
+    emotion_dict = load_emotion_dict() #获取情感字典
+    sentiments = analyze_sentiments(comments, model, tokenizer, emotion_dict)
 
-    # 读取 JSON 文件中的爬虫结果
-    file_path = "Weibo_data.json"
-    crawled_data = load_test_data(file_path)
+    # 可视化情感分布和词云
+    visualize_sentiments(sentiments)
+    generate_wordcloud(comments)
 
-    # 遍历每个爬取的文本，进行情感分析
-    for item in crawled_data:
-        sample_text = item.get('content', '')  # 获取每条内容文本
-        if sample_text:  # 如果文本不为空
-            sentiment_label_id = predict_sentiment(sample_text, model, tokenizer, emotion_dict)
-            sentiment = label_to_emotion(sentiment_label_id)
-            print(f"Text: {sample_text}\nPredicted sentiment: {sentiment}\n")
-        else:
-            print("Empty text, skipping...\n")
+
+if __name__ == "__main__":
+    main()
