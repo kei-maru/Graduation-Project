@@ -13,7 +13,6 @@ import re
 # 数据增强增强器（同义词替换）
 augment_word = naw.RandomWordAug(action="delete")
 
-
 # 引入情感词典
 def load_emotion_dict():
     return {

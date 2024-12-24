@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from Config import DEVICE
 from Model import build_model
 import os
+import pandas as pd
 
 label_to_id = {
     'angry': 0,
@@ -36,14 +37,14 @@ def load_best_model():
     print(f"Loaded best model from {model_path}")
     return model
 
-def plot_confusion_matrix(all_labels, all_preds, labels):
-    # 计算并绘制混淆矩阵
+def plot_confusion_matrix(all_labels, all_preds, labels, title="Confusion Matrix"):
+
     cm = confusion_matrix(all_labels, all_preds, labels=labels)
     plt.figure(figsize=(10, 7))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=labels, yticklabels=labels)
     plt.xlabel('Predicted')
     plt.ylabel('True')
-    plt.title('Confusion Matrix')
+    plt.title(title)
     plt.show()
 
 def evaluate_model(model, loader):

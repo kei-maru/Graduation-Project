@@ -1,10 +1,11 @@
 import torch
 from torch.optim import AdamW
-from Config import EPOCHS, LEARNING_RATE, DEVICE, BATCH_SIZE, TRAIN_FILE, TEST_FILE
+from Config import EPOCHS, LEARNING_RATE, DEVICE, BATCH_SIZE, TRAIN_FILE, TEST_FILE, Augmented_train_data
 from Data_loader import get_train_valid_dataloaders
-from Evaluate import evaluate_model, load_best_model
+from Evaluate import evaluate_model, load_best_model, plot_confusion_matrix
 from torch.nn import CrossEntropyLoss
 from Model import build_model
+import pandas as pd
 import os
 import argparse
 
@@ -67,13 +68,15 @@ if __name__ == "__main__":
     # 获取训练和验证数据加载器
     train_loader, valid_loader = get_train_valid_dataloaders(data_dir, batch_size=BATCH_SIZE)
 
+
+    '''
     # 构建模型
     model = build_model(num_labels=6)
     model.to(DEVICE)
 
     # 训练模型并保存
     train_model(model, train_loader, valid_loader, output_dir, epochs=EPOCHS, learning_rate=LEARNING_RATE)
-
+    '''
     # 加载并评估保存的最佳模型
     model = load_best_model()  # 加载最佳模型
     evaluate_model(model, valid_loader)

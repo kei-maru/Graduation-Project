@@ -3,6 +3,7 @@ import torch
 
 # 数据集路径
 TRAIN_FILE = 'weibo_dataset/train/usual_train.txt'
+Augmented_train_data = 'weibo_dataset/train/augmented_train_data.json'
 TEST_FILE = 'weibo_dataset/test/test_real/usual_test_labeled.txt/'
 
 # 模型超参数

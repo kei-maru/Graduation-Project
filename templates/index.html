@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>微博情感分析</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        #search-container {
+            margin-bottom: 20px;
+        }
+        #search-container input {
+            width: 300px;
+            padding: 10px;
+        }
+        #search-container button {
+            padding: 10px;
+            cursor: pointer;
+        }
+        #result-container {
+            display: none;
+        }
+        #sentiment-chart, #wordcloud {
+            margin-top: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>微博情感分析</h2>
+    <div id="search-container">
+        <input type="text" id="weibo-url" placeholder="请输入微博帖子网址">
+        <button onclick="fetchComments()">分析情感</button>
+    </div>
+
+    <div id="result-container">
+        <div id="sentiment-chart"></div>
+        <div id="wordcloud"></div>
+        <div id="comments-list"></div>
+    </div>
+
+    <script>
+        function fetchComments() {
+            const postUrl = document.getElementById('weibo-url').value;
+            if (!postUrl) {
+                alert("请输入微博帖子的网址");
+                return;
+            }
+
+            fetch('/fetch_comments', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ post_url: postUrl })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                document.getElementById('result-container').style.display = 'block';
+
+                // 设置情感分布图
+                document.getElementById('sentiment-chart').innerHTML = `<img src="data:image/png;base64,${data.sentiment_img}" />`;
+
+                // 设置词云图
+                document.getElementById('wordcloud').innerHTML = `<img src="data:image/png;base64,${data.wordcloud_img}" />`;
+
+                // 显示评论
+                const commentsList = document.getElementById('comments-list');
+                commentsList.innerHTML = '<h3>评论：</h3>';
+                data.comments.forEach(comment => {
+                    const p = document.createElement('p');
+                    p.textContent = comment;
+                    commentsList.appendChild(p);
+                });
+            })
+            .catch(error => console.error('请求失败:', error));
+        }
+    </script>
+
+</body>
+</html>
