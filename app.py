@@ -61,8 +61,8 @@ def fetch_comments(client, weibo_id, max_comments=900):
 
             comments.extend([comment['text'] for comment in response['comments']])
 
-            # 如果返回的评论数少于 100，说明所有评论都已获取
-            if len(response['comments']) < 50:
+            # 默认返回10页
+            if page == 10 :
                 break
 
             page += 1  # 请求下一页评论
@@ -70,7 +70,7 @@ def fetch_comments(client, weibo_id, max_comments=900):
         except Exception as e:
             print(f"获取评论时出错: {e}")
             break
-    print(page)
+    print(page,len(comments))
 
     # 返回不超过 max_comments 条评论
     return comments[:max_comments]
